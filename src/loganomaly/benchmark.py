@@ -9,6 +9,10 @@ Methods (so far):
                        counts. Contamination is set to the training anomaly rate (a common,
                        slightly optimistic convention; stated so results are not over-read).
   random_forest        uses training labels. Supervised Random Forest on the same features.
+  markov_next_template uses training labels (normal lines only). Order-1 transition counts;
+                       flag a window if a line is not among the 9 most likely next templates.
+  deeplog_lstm         uses training labels (normal lines only). DeepLog-style LSTM over the
+                       last 10 templates, same top-9 rule. See sequence.py.
 
 Metrics: precision, recall, F1 on test windows; plus fit and predict time.
 
@@ -25,6 +29,7 @@ from sklearn.metrics import f1_score, precision_score, recall_score
 
 from loganomaly import RESULTS_DIR
 from loganomaly.features import chronological_split, load_events, make_windows
+from loganomaly.sequence import deeplog_lstm, markov_next_template
 
 SEVERE_LEVELS = {"FATAL", "FAILURE"}
 
@@ -81,6 +86,8 @@ METHODS = {
     "known_bad_rule": ("rule", "train labels", known_bad_rule),
     "isolation_forest": ("ML", "none", isolation_forest),
     "random_forest": ("ML", "train labels", random_forest),
+    "markov_next_template": ("sequence", "train labels", markov_next_template),
+    "deeplog_lstm": ("sequence", "train labels", deeplog_lstm),
 }
 
 
