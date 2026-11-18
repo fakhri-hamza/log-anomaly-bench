@@ -15,8 +15,9 @@ Choices, stated so results are not over-read:
   * Trained on the chronological training part only, on samples whose target line is
     labelled normal (as in DeepLog). That uses training labels.
   * Templates never seen in training map to an "unknown" id and are always suspicious.
-  * One global stream of lines (BGL interleaves many nodes). Per-node streams are a
-    possible next step.
+  * streams="global": one stream of lines in file order (BGL interleaves many nodes).
+    streams="node" (v0.3): each line's history is the previous lines *of the same node*,
+    so the model sees each machine's own sequence instead of a mix of machines.
   * g = 9 as in the DeepLog paper, fixed in advance (not tuned on the test set).
 """
 from dataclasses import dataclass
@@ -47,6 +48,29 @@ def history_matrix(codes: np.ndarray, targets: np.ndarray, history: int) -> np.n
     padded = np.concatenate([np.full(history, UNKNOWN, dtype=codes.dtype), codes])
     offsets = np.arange(history)
     return padded[targets[:, None] + offsets[None, :]]
+
+
+def node_history_matrix(codes: np.ndarray, groups: np.ndarray, targets: np.ndarray,
+                        history: int) -> np.ndarray:
+    """Like history_matrix, but the history of a line is the previous lines of the same group.
+
+    groups: (n_lines,) integer group id per line (e.g. the node). Positions before the first
+    line of a group are padded with UNKNOWN.
+    """
+    n = len(codes)
+    order = np.lexsort((np.arange(n), groups))          # by group, then by original position
+    pos = np.empty(n, dtype=np.int64)
+    pos[order] = np.arange(n)                            # line -> position in the sorted order
+    sorted_groups = groups[order]
+    starts = np.r_[0, np.flatnonzero(sorted_groups[1:] != sorted_groups[:-1]) + 1]
+    group_start = np.repeat(starts, np.diff(np.r_[starts, n]))
+    p = pos[targets]
+    rank_in_group = p - group_start[p]
+    back = history - np.arange(history)                  # how far back each column looks
+    idx = p[:, None] - back[None, :]
+    valid = rank_in_group[:, None] >= back[None, :]
+    sorted_codes = codes[order]
+    return np.where(valid, sorted_codes[np.clip(idx, 0, n - 1)], UNKNOWN)
 
 
 def windows_from_lines(line_flags: np.ndarray, window_of_line: np.ndarray, n_windows: int) -> np.ndarray:
@@ -145,21 +169,29 @@ def _setup(w, split, history):
 
 
 def sequence_ranks(w, split, model: str = "lstm", history: int = 10,
-                   max_train: int = 500_000, epochs: int = 3, seed: int = 42) -> np.ndarray:
+                   max_train: int = 500_000, epochs: int = 3, seed: int = 42,
+                   streams: str = "global") -> np.ndarray:
     """Rank of each test line's real template (unknown templates -> huge rank)."""
     enc, test_line0, train_targets = _setup(w, split, history)
     codes = enc.codes
     test_targets = np.arange(test_line0, len(codes))
+    if streams == "global":
+        hist = lambda t: history_matrix(codes, t, history)                          # noqa: E731
+    elif streams == "node":
+        groups = w.events["node"].astype("category").cat.codes.to_numpy()
+        hist = lambda t: node_history_matrix(codes, groups, t, history)             # noqa: E731
+    else:
+        raise ValueError(streams)
     if model == "markov":
-        m = MarkovNext().fit(codes[train_targets - 1], codes[train_targets], enc.vocab_size)
-        ranks = m.rank_of(codes[test_targets - 1], codes[test_targets])
+        m = MarkovNext().fit(hist(train_targets)[:, -1], codes[train_targets], enc.vocab_size)
+        ranks = m.rank_of(hist(test_targets)[:, -1], codes[test_targets])
     elif model == "lstm":
         rng = np.random.default_rng(seed)
         if len(train_targets) > max_train:
             train_targets = np.sort(rng.choice(train_targets, max_train, replace=False))
-        net = train_lstm(history_matrix(codes, train_targets, history), codes[train_targets],
+        net = train_lstm(hist(train_targets), codes[train_targets],
                          enc.vocab_size, epochs=epochs, seed=seed)
-        ranks = lstm_rank_of(net, history_matrix(codes, test_targets, history), codes[test_targets])
+        ranks = lstm_rank_of(net, hist(test_targets), codes[test_targets])
     else:
         raise ValueError(model)
     ranks = np.where(codes[test_targets] == UNKNOWN, np.iinfo(np.int64).max, ranks)
@@ -174,12 +206,18 @@ def flags_from_ranks(w, split, ranks: np.ndarray, g: int = 9) -> np.ndarray:
     return flags
 
 
+def _streams(w) -> str:
+    # session data (HDFS) carries the block id in `node`: each block is its own sequence.
+    # BGL in benchmark.py is loaded without `node`, i.e. one global stream (as in v0.2).
+    return "node" if "node" in w.events.columns else "global"
+
+
 def markov_next_template(w, split, g: int = 9):
-    return flags_from_ranks(w, split, sequence_ranks(w, split, "markov"), g)
+    return flags_from_ranks(w, split, sequence_ranks(w, split, "markov", streams=_streams(w)), g)
 
 
 def deeplog_lstm(w, split, g: int = 9):
-    return flags_from_ranks(w, split, sequence_ranks(w, split, "lstm"), g)
+    return flags_from_ranks(w, split, sequence_ranks(w, split, "lstm", streams=_streams(w)), g)
 
 
 # --------------------------------------------------------------------------- top-g sweep

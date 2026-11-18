@@ -53,3 +53,14 @@ def test_unknown_template_is_always_flagged():
     w = make_windows(ev, size=40)
     ranks = sequence_ranks(w, 8, "markov")
     assert flags_from_ranks(w, 8, ranks, g=1000).tolist() == [1, 0]
+
+
+def test_node_history_uses_only_the_same_node():
+    from loganomaly.sequence import node_history_matrix
+    #            line: 0  1  2  3  4  5
+    codes = np.array([1, 5, 2, 6, 3, 7])
+    nodes = np.array([0, 1, 0, 1, 0, 1])          # two machines, interleaved
+    X = node_history_matrix(codes, nodes, np.array([4, 5, 1]), history=2)
+    assert X.tolist() == [[1, 2],                 # line 4 (node 0): previous node-0 lines 0, 2
+                          [5, 6],                 # line 5 (node 1): previous node-1 lines 1, 3
+                          [UNKNOWN, UNKNOWN]]     # line 1 is node 1's first line
