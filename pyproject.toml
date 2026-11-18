@@ -1,6 +1,6 @@
 [project]
 name = "loganomaly"
-version = "0.2.0"
+version = "0.3.0"
 description = "Benchmark of log anomaly detection methods on Loghub datasets"
 requires-python = ">=3.10"
 
