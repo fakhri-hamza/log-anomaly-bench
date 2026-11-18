@@ -109,14 +109,49 @@ def sequence_chart(name: str, window: int) -> None:
     print(f"Saved {out}")
 
 
+def datasets_chart() -> None:
+    """F1 of every method on BGL (fixed windows) vs HDFS (block sessions)."""
+    names = {"severity_rule": "Severity rule", "random_forest": "Random Forest",
+             "known_bad_rule": "Known-bad-template rule", "markov_next_template": "Markov next-template",
+             "deeplog_lstm": "DeepLog-style LSTM", "isolation_forest": "Isolation Forest",
+             "unseen_template_rule": "Unseen-template rule"}
+    bgl = pd.read_csv(RESULTS_DIR / "BGL_w100_results.csv").set_index("method")["f1"]
+    hdfs = pd.read_csv(RESULTS_DIR / "HDFS_sessions_results.csv").set_index("method")["f1"]
+    order = list(names)
+    fig, ax = plt.subplots(figsize=(9, 5))
+    y = range(len(order))
+    h = 0.38
+    ax.barh([i - h / 2 for i in y], [bgl[m] for m in order], h, color="#E45756",
+            label="BGL supercomputer (new failure types appear in the test period)")
+    ax.barh([i + h / 2 for i in y], [hdfs[m] for m in order], h, color="#4C78A8",
+            label="HDFS cluster (no new message types in the test period)")
+    for i, m in enumerate(order):
+        ax.text(bgl[m] + 0.01, i - h / 2, f"{bgl[m]:.2f}", va="center", fontsize=8.5, color="#E45756")
+        ax.text(hdfs[m] + 0.01, i + h / 2, f"{hdfs[m]:.2f}", va="center", fontsize=8.5, color="#4C78A8")
+    ax.set_yticks(list(y), [names[m] for m in order])
+    ax.invert_yaxis()
+    ax.set_xlim(0, 1.12)
+    ax.set_xlabel("F1 on the chronologically later 20% (higher is better)")
+    ax.set_title("Same methods, two systems: the winner flips", loc="left")
+    ax.legend(frameon=False, fontsize=8.5, loc="lower right")
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    fig.tight_layout()
+    out = RESULTS_DIR / "BGL_vs_HDFS_f1.png"
+    fig.savefig(out, dpi=160)
+    print(f"Saved {out}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("chart", choices=["templates", "benchmark", "sequence"])
+    parser.add_argument("chart", choices=["templates", "benchmark", "sequence", "datasets"])
     parser.add_argument("--dataset", default="BGL_2k")
     parser.add_argument("--window", type=int, default=100)
     args = parser.parse_args()
     if args.chart == "templates":
         templates_chart(args.dataset)
+    elif args.chart == "datasets":
+        datasets_chart()
     elif args.chart == "sequence":
         sequence_chart(args.dataset, args.window)
     else:

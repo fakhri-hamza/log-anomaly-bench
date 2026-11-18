@@ -1,0 +1,8 @@
+method,family,labels_used,precision,recall,f1,flagged_windows,seconds
+severity_rule,rule,none,1.0000,0.2484,0.3979,417,0.0826
+unseen_template_rule,rule,none,0.0000,0.0000,0.0000,0,0.3159
+known_bad_rule,rule,train labels,0.7136,0.7242,0.7189,1704,0.5135
+isolation_forest,ML,none,0.3081,0.7088,0.4294,3863,5.6221
+random_forest,ML,train labels,1.0000,0.9964,0.9982,1673,11.1876
+markov_next_template,sequence,train labels,0.7566,0.5813,0.6575,1290,6.4288
+deeplog_lstm,sequence,train labels,0.6994,0.5682,0.6270,1364,101.5237
