@@ -94,7 +94,66 @@ def parse(name: str) -> None:
         print(summary.head(10)[["template_id", "count", "anomalies", "template"]].to_string(index=False))
 
 
+
+
+# --------------------------------------------------------------------------- HDFS (v0.3)
+BLOCK_RE = __import__("re").compile(r"blk_-?\d+")
+
+
+def parse_hdfs(name: str = "HDFS") -> None:
+    """Parse HDFS_v1 (Xu et al., SOSP 2009): 11M lines from a 200-node Hadoop cluster.
+
+    A raw line:  081109 203615 148 INFO dfs.DataNode$PacketResponder: PacketResponder 1 for block blk_38865049064139660 terminating
+                 ^date  ^time  ^pid ^level ^component                 ^message
+    Labels are per *block* (anomaly_label.csv), not per line. Each line is assigned to the
+    first block id it mentions; the `node` column holds that block id, and is_anomaly is the
+    block's label, so a block's lines form one session.
+    """
+    import csv
+
+    raw = RAW_DIR / f"{name}.log"
+    labels_csv = RAW_DIR / f"{name}_anomaly_label.csv"
+    with open(labels_csv, encoding="utf-8") as f:
+        label = {r["BlockId"]: int(r["Label"] == "Anomaly") for r in csv.DictReader(f)}
+
+    miner = make_miner()
+    cols = {"timestamp": [], "node": [], "component": [], "level": [], "is_anomaly": [], "template_id": []}
+    start = time.perf_counter()
+    skipped = 0
+    with open(raw, encoding="utf-8", errors="replace") as f:
+        for i, line in enumerate(f, 1):
+            parts = line.rstrip("\n").split(" ", 5)
+            m = BLOCK_RE.search(line)
+            if len(parts) < 6 or m is None or m.group(0) not in label:
+                skipped += 1
+                continue
+            date, hms, _pid, level, comp, content = parts
+            blk = m.group(0)
+            cols["timestamp"].append(int(date + hms))           # yymmddHHMMSS, sortable
+            cols["node"].append(blk)
+            cols["component"].append(comp.rstrip(":"))
+            cols["level"].append(level)
+            cols["is_anomaly"].append(label[blk])
+            cols["template_id"].append(miner.add_log_message(content)["cluster_id"])
+            if i % 1_000_000 == 0:
+                print(f"  {i:,} lines  ({i / (time.perf_counter() - start):,.0f} lines/s)", flush=True)
+    elapsed = time.perf_counter() - start
+    df = pd.DataFrame(cols)
+    templates = {c.cluster_id: c.get_template() for c in miner.drain.clusters}
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    df.to_csv(PROCESSED_DIR / f"{name}_events.csv", index=False)
+    summary = (df.groupby("template_id").agg(count=("is_anomaly", "size"), anomalies=("is_anomaly", "sum"))
+                 .reset_index())
+    summary["template"] = summary["template_id"].map(templates)
+    summary.sort_values("count", ascending=False).to_csv(PROCESSED_DIR / f"{name}_templates.csv", index=False)
+    blocks = df.groupby("node", observed=True)["is_anomaly"].first()
+    print(f"Lines: {len(df):,} kept, {skipped:,} without a labelled block (parsed in {elapsed:.0f}s)")
+    print(f"Blocks: {len(blocks):,}, anomalous: {blocks.sum():,} ({blocks.mean():.2%})")
+    print(f"Templates: {len(templates)}  levels: {df['level'].value_counts().to_dict()}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", default="BGL_2k")
-    parse(parser.parse_args().dataset)
+    ds = parser.parse_args().dataset
+    parse_hdfs(ds) if ds.startswith("HDFS") else parse(ds)

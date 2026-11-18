@@ -28,10 +28,23 @@ from sklearn.ensemble import IsolationForest
 from sklearn.metrics import f1_score, precision_score, recall_score
 
 from loganomaly import RESULTS_DIR
-from loganomaly.features import chronological_split, load_events, make_windows
+from loganomaly.features import chronological_split, load_events, make_session_windows, make_windows
 from loganomaly.sequence import deeplog_lstm, markov_next_template
 
-SEVERE_LEVELS = {"FATAL", "FAILURE"}
+# "Severe" = the top severity levels each system actually uses (BGL has FATAL/FAILURE;
+# HDFS only logs INFO and WARN, so WARN is its most severe level).
+SEVERE_BY_DATASET = {"BGL": {"FATAL", "FAILURE"}, "HDFS": {"WARN", "ERROR", "FATAL"}}
+SEVERE_LEVELS = SEVERE_BY_DATASET["BGL"]
+
+
+def build_windows(name: str, window: int):
+    """Fixed windows of `window` lines (BGL) or one window per block session (HDFS)."""
+    global SEVERE_LEVELS
+    family = "HDFS" if name.startswith("HDFS") else "BGL"
+    SEVERE_LEVELS = SEVERE_BY_DATASET[family]
+    if family == "HDFS":
+        return make_session_windows(load_events(name, with_node=True))
+    return make_windows(load_events(name), window)
 
 
 def per_window_any(windows, line_mask: np.ndarray) -> np.ndarray:
@@ -93,11 +106,11 @@ METHODS = {
 
 def run(name: str, window: int) -> pd.DataFrame:
     t0 = time.perf_counter()
-    events = load_events(name)
-    w = make_windows(events, window)
+    w = build_windows(name, window)
+    events = w.events
     split = chronological_split(len(w.labels))
     y_test = w.labels[split:]
-    print(f"{len(events):,} lines -> {len(w.labels):,} windows of {window} lines "
+    print(f"{len(events):,} lines -> {len(w.labels):,} windows ({window if not name.startswith('HDFS') else 'session'}) "
           f"({w.counts.shape[1]:,} templates), built in {time.perf_counter() - t0:.0f}s")
     print(f"train: {split:,} windows ({w.labels[:split].mean():.1%} anomalous) | "
           f"test: {len(y_test):,} windows ({y_test.mean():.1%} anomalous)\n")
@@ -121,7 +134,8 @@ def run(name: str, window: int) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = RESULTS_DIR / f"{name}_w{window}_results.csv"
+    tag = "sessions" if name.startswith("HDFS") else f"w{window}"
+    out = RESULTS_DIR / f"{name}_{tag}_results.csv"
     df.to_csv(out, index=False, float_format="%.4f")
     print(f"\nSaved {out}")
     return df

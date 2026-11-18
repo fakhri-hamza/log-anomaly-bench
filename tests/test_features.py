@@ -38,3 +38,16 @@ def test_drain_masks_numbers_into_one_template():
     b = miner.add_log_message("generating core.862")["cluster_id"]
     assert a == b
     assert "<NUM>" in miner.drain.id_to_cluster[a].get_template()
+
+
+def test_session_windows_group_blocks_in_order_of_first_line():
+    import pandas as pd
+    from loganomaly.features import make_session_windows
+    ev = pd.DataFrame({"timestamp": range(6), "level": "INFO",
+                       "node": ["b2", "b1", "b2", "b3", "b1", "b3"],
+                       "is_anomaly": [0, 1, 0, 0, 1, 0], "template_id": [5, 6, 7, 5, 8, 5]})
+    w = make_session_windows(ev)
+    assert w.window_of_line.tolist() == [0, 0, 1, 1, 2, 2]          # b2, b1, b3; contiguous
+    assert w.events["template_id"].tolist() == [5, 7, 6, 8, 5, 5]   # order kept inside a block
+    assert w.labels.tolist() == [0, 1, 0]
+    assert w.counts.toarray().sum(axis=1).tolist() == [2, 2, 2]
