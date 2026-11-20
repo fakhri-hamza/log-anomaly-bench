@@ -1,6 +1,6 @@
 # Log Anomaly Bench
 
-[![ci](https://github.com/Zolnarb1/log-anomaly-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/Zolnarb1/log-anomaly-bench/actions/workflows/ci.yml) ![Python 3.12](https://img.shields.io/badge/python-3.12-blue) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![ci](https://github.com/fakhri-hamza/log-anomaly-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/fakhri-hamza/log-anomaly-bench/actions/workflows/ci.yml) ![Python 3.12](https://img.shields.io/badge/python-3.12-blue) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **How well do anomaly detectors really work on system logs, and do they beat a one-line rule?**
 A reproducible benchmark of rules, classic ML, sequence models and (soon) LLM-based detectors on two public system logs: the BlueGene/L supercomputer (BGL) and a Hadoop file system cluster (HDFS).
